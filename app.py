@@ -12,7 +12,7 @@ except Exception:
     from dotenv import load_dotenv
     load_dotenv()
 
-from config import get_display_label, get_icon  # noqa: E402
+from xovia_config import get_display_label, get_icon  # noqa: E402
 from handlers import stream_chat, stream_code  # noqa: E402
 from image_handler import generate_followup_image, generate_image  # noqa: E402
 from router import classify  # noqa: E402
