@@ -15,7 +15,14 @@ except Exception:
 from handlers import stream_chat, stream_code  # noqa: E402
 from image_handler import generate_image  # noqa: E402
 from router import CATEGORY_LABELS, classify, route_label  # noqa: E402
-from utils import detect_language, extract_code_block, pre_code_text  # noqa: E402
+from utils import (  # noqa: E402
+    detect_document_type,
+    detect_language,
+    extract_code_block,
+    extract_markdown_table_to_csv,
+    pre_code_text,
+    text_to_docx,
+)
 
 st.set_page_config(
     page_title="Xovia",
@@ -97,7 +104,7 @@ if not st.session_state.has_first_message:
 # ---------------------------------------------------------------------------
 # Chat history
 # ---------------------------------------------------------------------------
-for msg in st.session_state.messages:
+for _i, msg in enumerate(st.session_state.messages):
     with st.chat_message(msg["role"]):
         if msg["role"] == "assistant":
             st.caption(f"Routed to {msg.get('route', 'unknown')}")
@@ -113,8 +120,26 @@ for msg in st.session_state.messages:
                     st.code(_code, language=detect_language(_lang))
                 else:
                     st.markdown(msg["content"])
+            elif msg.get("category") == "data":
+                st.markdown(msg["content"])
+                _csv = extract_markdown_table_to_csv(msg["content"]) or msg["content"]
+                st.download_button(
+                    label="📊 Download as .csv",
+                    data=_csv,
+                    file_name="analysis.csv",
+                    mime="text/csv",
+                    key=f"dl_{_i}",
+                )
             else:
                 st.markdown(msg["content"])
+                if msg.get("is_document"):
+                    st.download_button(
+                        label="📄 Download as .docx",
+                        data=text_to_docx(msg["content"]),
+                        file_name=msg.get("doc_filename", "document.docx"),
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        key=f"dl_{_i}",
+                    )
         else:
             st.write(msg["content"])
 
@@ -179,6 +204,8 @@ if user_input:
 
         image_bytes: bytes | None = None
         enhanced_prompt: str = ""
+        is_document: bool = False
+        doc_filename: str = ""
 
         if category == "code":
             stream_slot = st.empty()
@@ -221,6 +248,23 @@ if user_input:
 
         else:
             full_response = st.write_stream(stream_chat(user_input, prev_history))
+            if category == "data":
+                _csv = extract_markdown_table_to_csv(full_response) or full_response
+                st.download_button(
+                    label="📊 Download as .csv",
+                    data=_csv,
+                    file_name="analysis.csv",
+                    mime="text/csv",
+                )
+            else:
+                is_document, doc_filename = detect_document_type(user_input)
+                if is_document:
+                    st.download_button(
+                        label="📄 Download as .docx",
+                        data=text_to_docx(full_response),
+                        file_name=doc_filename,
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    )
 
     st.session_state.messages.append({"role": "user", "content": user_input})
     _assistant_msg: dict = {
@@ -228,6 +272,8 @@ if user_input:
         "content": full_response,
         "route": route_name,
         "category": category,
+        "is_document": is_document,
+        "doc_filename": doc_filename,
     }
     if category == "image" and image_bytes:
         _assistant_msg["image_bytes"] = image_bytes
