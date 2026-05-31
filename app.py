@@ -4,7 +4,16 @@ from io import BytesIO
 import streamlit as st
 from PIL import Image
 
-# Inject Streamlit secrets into env before any API client is created
+# set_page_config MUST be the first Streamlit call.
+# If it comes after any import that can fail, Streamlit shows a raw
+# error screen on cold-start before recovering — the one-frame flash.
+st.set_page_config(
+    page_title="Xovia",
+    page_icon="⚡",
+    layout="wide",
+)
+
+# Inject secrets into env so lazy API clients can find the keys.
 try:
     os.environ.setdefault("ANTHROPIC_API_KEY", st.secrets["anthropic"]["api_key"])
     os.environ.setdefault("OPENAI_API_KEY", st.secrets["openai"]["api_key"])
@@ -12,6 +21,8 @@ except Exception:
     from dotenv import load_dotenv
     load_dotenv()
 
+# Local imports after page config — any failure is now caught inside
+# the configured page rather than on a blank error screen.
 from xovia_config import get_display_label, get_icon  # noqa: E402
 from handlers import stream_chat, stream_code  # noqa: E402
 from image_handler import generate_followup_image, generate_image  # noqa: E402
@@ -24,12 +35,6 @@ from utils import (  # noqa: E402
     generate_filename,
     pre_code_text,
     text_to_docx,
-)
-
-st.set_page_config(
-    page_title="Xovia",
-    page_icon="⚡",
-    layout="wide",
 )
 
 # ---------------------------------------------------------------------------
