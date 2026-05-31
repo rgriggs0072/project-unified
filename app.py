@@ -95,7 +95,7 @@ OVERRIDE_TO_CATEGORY: dict[str, str] = {
 col_title, col_override, col_pill = st.columns([3, 2, 2])
 
 with col_title:
-    st.markdown("## ⚡ Xovia")
+    st.image("images/xovia_logo.png", width=160)
 
 with col_override:
     override: str = st.selectbox(
