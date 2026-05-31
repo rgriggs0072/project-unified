@@ -18,7 +18,7 @@ from router import CATEGORY_LABELS, classify, route_label  # noqa: E402
 from utils import detect_language, extract_code_block, pre_code_text  # noqa: E402
 
 st.set_page_config(
-    page_title="Project Unified",
+    page_title="Xovia",
     page_icon="⚡",
     layout="wide",
 )
@@ -27,17 +27,16 @@ st.set_page_config(
 # Session state bootstrap
 # ---------------------------------------------------------------------------
 defaults = {
-    "messages": [],           # list of {role, content, route?, category?}
+    "messages": [],
     "has_first_message": False,
     "current_route_label": None,
-    "pending_input": None,    # set by hint-chip buttons
 }
 for k, v in defaults.items():
     if k not in st.session_state:
         st.session_state[k] = v
 
 # ---------------------------------------------------------------------------
-# Capture inputs at the top so they're available during render
+# Constants
 # ---------------------------------------------------------------------------
 OVERRIDE_OPTIONS = [
     "🔀 Auto-route",
@@ -56,14 +55,12 @@ OVERRIDE_TO_CATEGORY: dict[str, str] = {
     "Data Analysis": "data",
 }
 
-# st.chat_input is always sticky-bottom but its value is available here
-raw_chat_input: str | None = st.chat_input("Ask anything…")
-
-# Consume a pending chip input (set by button press on previous run)
-user_input: str | None = raw_chat_input
-if not user_input and st.session_state.pending_input:
-    user_input = st.session_state.pending_input
-    st.session_state.pending_input = None
+CHIPS: list[tuple[str, str]] = [
+    ("✍️ Write me a cover letter", "Write me a cover letter for "),
+    ("🐍 Debug my Python code", "Debug my Python code: "),
+    ("🖼️ Make an image of...", "Make an image of "),
+    ("📊 Summarize this CSV", "Summarize this data: "),
+]
 
 # ---------------------------------------------------------------------------
 # Top bar: title | override selectbox | routing pill
@@ -71,7 +68,7 @@ if not user_input and st.session_state.pending_input:
 col_title, col_override, col_pill = st.columns([3, 2, 2])
 
 with col_title:
-    st.markdown("## ⚡ Project Unified")
+    st.markdown("## ⚡ Xovia")
 
 with col_override:
     override: str = st.selectbox(
@@ -91,14 +88,14 @@ with col_pill:
 st.divider()
 
 # ---------------------------------------------------------------------------
-# Empty state — hero (disappears after first message)
+# Empty state hero — disappears after first message
 # ---------------------------------------------------------------------------
 if not st.session_state.has_first_message:
     st.markdown("# Ask anything. We'll find the right AI.")
     st.markdown("Chat, code, images, analysis — all in one place.")
 
 # ---------------------------------------------------------------------------
-# Chat history (all previous messages)
+# Chat history
 # ---------------------------------------------------------------------------
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
@@ -122,40 +119,54 @@ for msg in st.session_state.messages:
             st.write(msg["content"])
 
 # ---------------------------------------------------------------------------
-# Hint chips — always visible, below history
+# Hint chips
+# Chips MUST appear above the text_input in the script. When a chip is
+# clicked, session_state["user_input"] is set and st.rerun() is called.
+# The rerun restarts the script from the top; when it reaches the
+# text_input, it reads the pre-set session_state value — single click.
 # ---------------------------------------------------------------------------
-CHIPS: list[tuple[str, str]] = [
-    ("✍️ Write me a cover letter", "Write me a cover letter for a software engineering role."),
-    ("🐍 Debug my Python code", "Help me debug my Python code."),
-    ("🖼️ Make an image of...", "Make an image of a futuristic city at sunset."),
-    ("📊 Summarize this CSV", "Summarize the key insights from this CSV dataset."),
-]
-
 chip_cols = st.columns(len(CHIPS))
 for col, (label, prompt) in zip(chip_cols, CHIPS):
     with col:
-        if st.button(label, width=512):
-            st.session_state.pending_input = prompt
+        if st.button(label, use_container_width=True):
+            st.session_state["user_input"] = prompt
             st.rerun()
 
 # ---------------------------------------------------------------------------
-# Process new input
+# Input box + Send button
+# The clear_input flag is consumed BEFORE the widget renders so we can
+# reset session_state["user_input"] without the "modified after
+# instantiation" error.
+# ---------------------------------------------------------------------------
+if st.session_state.pop("clear_input", False):
+    st.session_state["user_input"] = ""
+
+input_col, send_col = st.columns([9, 1])
+with input_col:
+    input_text: str = st.text_input(
+        "Ask anything…",
+        key="user_input",
+        label_visibility="collapsed",
+        placeholder="Ask anything…",
+    )
+with send_col:
+    send_clicked: bool = st.button("Send →", type="primary", use_container_width=True)
+
+user_input: str | None = input_text.strip() if (send_clicked and input_text.strip()) else None
+
+# ---------------------------------------------------------------------------
+# Process submission
 # ---------------------------------------------------------------------------
 if user_input:
     st.session_state.has_first_message = True
-
-    # Snapshot history before appending (handlers build messages from history + prompt)
     prev_history = list(st.session_state.messages)
 
-    # Render the new user message inline
     with st.chat_message("user"):
         st.write(user_input)
 
     with st.chat_message("assistant"):
-        # Phase 1 of pill: show routing spinner
         pill.markdown("**⏳ Routing…**")
 
-        # Determine route
         if override != "🔀 Auto-route":
             category = OVERRIDE_TO_CATEGORY.get(override, "chat")
         else:
@@ -164,29 +175,18 @@ if user_input:
 
         route_name = route_label(category)
         st.session_state.current_route_label = route_name
-
-        # Phase 2 of pill: snap to actual route
         pill.markdown(f"**⚡ {route_name}**")
-
-        # Per-message route tag
         st.caption(f"Routed to {route_name}")
 
-        # ---------------------------------------------------------------
-        # Stream + render response
-        # ---------------------------------------------------------------
         image_bytes: bytes | None = None
         enhanced_prompt: str = ""
 
         if category == "code":
             stream_slot = st.empty()
-
-            # Stream into the slot (shows live prose + raw code fences)
             with stream_slot.container():
                 full_response: str = st.write_stream(
                     stream_code(user_input, prev_history)
                 )
-
-            # Re-render: replace raw streamed markdown with formatted code block
             code_block, lang_hint = extract_code_block(full_response)
             if code_block:
                 prose = pre_code_text(full_response)
@@ -195,11 +195,8 @@ if user_input:
                     if prose:
                         st.markdown(prose)
                     st.code(code_block, language=detect_language(lang_hint))
-            # If no code block found, the streamed markdown stays as-is
 
         elif category == "image":
-            image_bytes: bytes | None = None
-            enhanced_prompt: str = ""
             with st.spinner("Enhancing prompt and generating image…"):
                 image_bytes, enhanced_prompt, img_error = generate_image(user_input)
             if img_error == "content_policy":
@@ -222,14 +219,10 @@ if user_input:
             _label = _stub_labels.get(category, category.title())
             st.info(f"**{_label}** is coming soon. Routing to Claude Chat for now.")
             full_response = st.write_stream(stream_chat(user_input, prev_history))
-            image_bytes = None
-            enhanced_prompt = ""
 
         else:
-            # chat / data / fallback
             full_response = st.write_stream(stream_chat(user_input, prev_history))
 
-    # Persist both turns to session state
     st.session_state.messages.append({"role": "user", "content": user_input})
     _assistant_msg: dict = {
         "role": "assistant",
@@ -241,3 +234,7 @@ if user_input:
         _assistant_msg["image_bytes"] = image_bytes
         _assistant_msg["enhanced_prompt"] = enhanced_prompt
     st.session_state.messages.append(_assistant_msg)
+
+    # Flag input for clearing and rerun so the box resets immediately
+    st.session_state["clear_input"] = True
+    st.rerun()
