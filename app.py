@@ -134,23 +134,22 @@ for col, (label, prompt) in zip(chip_cols, CHIPS):
 
 # ---------------------------------------------------------------------------
 # Input box + Send button
-# The clear_input flag is consumed BEFORE the widget renders so we can
-# reset session_state["user_input"] without the "modified after
-# instantiation" error.
+# st.form makes Enter and the Send button equivalent.
+# clear_on_submit=True resets the field automatically after submission.
 # ---------------------------------------------------------------------------
-if st.session_state.pop("clear_input", False):
-    st.session_state["user_input"] = ""
-
-input_col, send_col = st.columns([9, 1])
-with input_col:
-    input_text: str = st.text_input(
-        "Ask anything…",
-        key="user_input",
-        label_visibility="collapsed",
-        placeholder="Ask anything…",
-    )
-with send_col:
-    send_clicked: bool = st.button("Send →", type="primary", use_container_width=True)
+with st.form("chat_form", clear_on_submit=True):
+    input_col, send_col = st.columns([9, 1])
+    with input_col:
+        input_text: str = st.text_input(
+            "Ask anything…",
+            key="user_input",
+            label_visibility="collapsed",
+            placeholder="Ask anything…",
+        )
+    with send_col:
+        send_clicked: bool = st.form_submit_button(
+            "Send →", type="primary", use_container_width=True
+        )
 
 user_input: str | None = input_text.strip() if (send_clicked and input_text.strip()) else None
 
@@ -235,6 +234,3 @@ if user_input:
         _assistant_msg["enhanced_prompt"] = enhanced_prompt
     st.session_state.messages.append(_assistant_msg)
 
-    # Flag input for clearing and rerun so the box resets immediately
-    st.session_state["clear_input"] = True
-    st.rerun()
