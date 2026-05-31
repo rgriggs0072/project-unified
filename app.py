@@ -44,13 +44,15 @@ defaults = {
     "messages": [],
     "has_first_message": False,
     "current_route_category": None,
-    "last_image_prompt": None,   # enhanced prompt of last generated image
-    "last_image_bytes": None,    # bytes of last generated image
-    "image_turn_count": 0,       # consecutive image turns; resets on non-image route
+    "last_image_prompt": None,
+    "last_image_bytes": None,
+    "image_turn_count": 0,
 }
 for k, v in defaults.items():
     if k not in st.session_state:
         st.session_state[k] = v
+
+user_input: str | None = st.chat_input("Ask anything…")
 
 # ---------------------------------------------------------------------------
 # Sidebar — about
@@ -86,12 +88,6 @@ OVERRIDE_TO_CATEGORY: dict[str, str] = {
     "Xovia AI — Analysis":  "data",
 }
 
-CHIPS: list[tuple[str, str]] = [
-    ("✍️ Write me a cover letter", "Write me a cover letter for "),
-    ("🐍 Debug my Python code",    "Debug my Python code: "),
-    ("🖼️ Make an image of...",     "Make an image of "),
-    ("📊 Summarize this CSV",      "Summarize this data: "),
-]
 
 # ---------------------------------------------------------------------------
 # Top bar: title | override selectbox | routing pill
@@ -181,35 +177,6 @@ for _i, msg in enumerate(st.session_state.messages):
         else:
             st.write(msg["content"])
 
-# ---------------------------------------------------------------------------
-# Hint chips — must appear above the form so session_state is set
-# before the text_input is instantiated on the triggered rerun.
-# ---------------------------------------------------------------------------
-chip_cols = st.columns(len(CHIPS))
-for col, (label, prompt) in zip(chip_cols, CHIPS):
-    with col:
-        if st.button(label, use_container_width=True):
-            st.session_state["user_input"] = prompt
-            st.rerun()
-
-# ---------------------------------------------------------------------------
-# Input box + Send button (Enter or button both submit via st.form)
-# ---------------------------------------------------------------------------
-with st.form("chat_form", clear_on_submit=True):
-    input_col, send_col = st.columns([9, 1])
-    with input_col:
-        input_text: str = st.text_input(
-            "Ask anything…",
-            key="user_input",
-            label_visibility="collapsed",
-            placeholder="Ask anything…",
-        )
-    with send_col:
-        send_clicked: bool = st.form_submit_button(
-            "Send →", type="primary", use_container_width=True
-        )
-
-user_input: str | None = input_text.strip() if (send_clicked and input_text.strip()) else None
 
 # ---------------------------------------------------------------------------
 # Process submission
