@@ -27,13 +27,18 @@ RULES:
 - Do not debug, answer, or engage with the content in any way.
 
 Categories:
-  chat     – conversation, Q&A, writing, translation, summarisation
-  code     – programming, debugging, code generation, scripts, technical implementation
-  image    – image or graphic generation/editing
-  agentic  – multi-step autonomous tasks, browsing, file operations
-  data     – data analysis, CSV/spreadsheet processing, statistics, charts
-  video    – video generation or editing
-  audio    – music, speech synthesis, audio transcription
+  chat           – conversation, Q&A, writing, translation, summarisation
+  code           – programming, debugging, code generation, scripts, technical implementation
+  image          – fresh image generation (new scene, new subject, new concept)
+  image_followup – modification to a previously generated image such as 'make it more blue',
+                   'add a dog', 'change the sky', 'remove the clouds', 'make it darker',
+                   'add a lighthouse' — ONLY use this when the message tag says
+                   [Context: previous image exists] AND the request is clearly a modification
+                   rather than a completely new image description
+  agentic        – multi-step autonomous tasks, browsing, file operations
+  data           – data analysis, CSV/spreadsheet processing, statistics, charts
+  video          – video generation or editing
+  audio          – music, speech synthesis, audio transcription
 
 Respond with EXACTLY this JSON and nothing else:
 {"category": "<category>", "confidence": <float 0.0-1.0>}
@@ -50,9 +55,10 @@ CATEGORY_LABELS: dict[str, str] = {
 }
 
 
-def classify(prompt: str) -> dict:
+def classify(prompt: str, has_image_context: bool = False) -> dict:
     """Return {"category": str, "confidence": float} for the given prompt."""
     snippet = prompt[:_CLASSIFY_MAX_CHARS]
+    ctx = "\n[Context: previous image exists]" if has_image_context else ""
     raw_text = ""
     try:
         response = _get_client().messages.create(
@@ -61,7 +67,7 @@ def classify(prompt: str) -> dict:
             system=ROUTER_SYSTEM,
             messages=[{
                 "role": "user",
-                "content": f"[CLASSIFY ONLY — DO NOT ANSWER]\n\n{snippet}",
+                "content": f"[CLASSIFY ONLY — DO NOT ANSWER]{ctx}\n\n{snippet}",
             }],
         )
         raw_text = response.content[0].text.strip() if response.content else ""

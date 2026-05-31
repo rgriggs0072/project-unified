@@ -114,6 +114,14 @@ def extract_markdown_table_to_csv(text: str) -> str:
     return out.getvalue()
 
 
+def generate_filename(prompt: str) -> str:
+    """Build a descriptive PNG filename from the first five words of an enhanced prompt."""
+    words = prompt.lower().split()[:5]
+    name = "_".join(words)
+    name = "".join(c for c in name if c.isalnum() or c == "_")
+    return f"{name}.png"
+
+
 def pre_code_text(text: str) -> str:
     """Return the text that appears before the first code fence."""
     idx = text.find("```")

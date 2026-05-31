@@ -33,6 +33,16 @@ def _get_openai() -> OpenAI:
     return _openai
 
 
+_CHAINED_ENHANCER_SYSTEM = (
+    "You are Xovia AI, an expert image prompt engineer. "
+    "Never mention Claude, Anthropic, OpenAI, or any underlying AI provider. "
+    "The user previously generated an image and now wants to modify it. "
+    "Rewrite the FULL image prompt incorporating both the original scene and the new modification. "
+    "The result must be a complete, standalone prompt — not just the modification. "
+    "Return only the enhanced prompt, nothing else. No explanation, no preamble."
+)
+
+
 def enhance_prompt(raw: str) -> str:
     response = _get_anthropic().messages.create(
         model=ENHANCER_MODEL,
@@ -43,17 +53,8 @@ def enhance_prompt(raw: str) -> str:
     return response.content[0].text.strip()
 
 
-def generate_image(prompt: str) -> tuple[bytes | None, str, str | None]:
-    """
-    Enhance prompt via Claude, generate via gpt-image-1, decode b64 to bytes.
-    Returns (image_bytes, enhanced_prompt, error_key).
-    error_key is None on success, "content_policy" or "api_error" on failure.
-    """
-    try:
-        enhanced = enhance_prompt(prompt)
-    except Exception:
-        enhanced = prompt  # fall back to raw prompt if enhancement fails
-
+def _generate_from_prompt(enhanced: str) -> tuple[bytes | None, str, str | None]:
+    """Send an already-enhanced prompt to gpt-image-1 and return bytes."""
     try:
         response = _get_openai().images.generate(
             model=IMAGE_MODEL,
@@ -61,14 +62,49 @@ def generate_image(prompt: str) -> tuple[bytes | None, str, str | None]:
             size="1024x1024",
             n=1,
         )
-        img_bytes = base64.b64decode(response.data[0].b64_json)
-        return img_bytes, enhanced, None
-
+        return base64.b64decode(response.data[0].b64_json), enhanced, None
     except Exception as e:
         err = str(e).lower()
         if any(kw in err for kw in ("content_policy", "safety", "declined", "rejected")):
             return None, enhanced, "content_policy"
         return None, enhanced, "api_error"
+
+
+def generate_image(prompt: str) -> tuple[bytes | None, str, str | None]:
+    """
+    Fresh image: enhance prompt via Claude then generate via gpt-image-1.
+    Returns (image_bytes, enhanced_prompt, error_key).
+    """
+    try:
+        enhanced = enhance_prompt(prompt)
+    except Exception:
+        enhanced = prompt
+    return _generate_from_prompt(enhanced)
+
+
+def generate_followup_image(
+    new_request: str,
+    last_prompt: str,
+) -> tuple[bytes | None, str, str | None]:
+    """
+    Follow-up image: chain previous enhanced prompt + new modification instruction,
+    re-enhance with Claude, then generate via gpt-image-1.
+    Returns (image_bytes, new_enhanced_prompt, error_key).
+    """
+    chain_input = (
+        f"Original image prompt:\n{last_prompt}\n\n"
+        f"New modification instruction:\n{new_request}"
+    )
+    try:
+        enhanced = _get_anthropic().messages.create(
+            model=ENHANCER_MODEL,
+            max_tokens=512,
+            system=_CHAINED_ENHANCER_SYSTEM,
+            messages=[{"role": "user", "content": chain_input}],
+        ).content[0].text.strip()
+    except Exception:
+        enhanced = f"{last_prompt}. Additionally: {new_request}"
+    return _generate_from_prompt(enhanced)
 
 
 # ---------------------------------------------------------------------------

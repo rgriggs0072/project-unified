@@ -14,6 +14,11 @@ ROUTE_LABELS: dict[str, dict[str, str]] = {
         "display_with_model": "Xovia AI — Image (gpt-image-1)",
         "icon":               "🎨",
     },
+    "image_followup": {
+        "display":            "Xovia AI — Image",
+        "display_with_model": "Xovia AI — Image (gpt-image-1)",
+        "icon":               "🎨",
+    },
     "data": {
         "display":            "Xovia AI — Analysis",
         "display_with_model": "Xovia AI — Analysis (Claude Sonnet)",

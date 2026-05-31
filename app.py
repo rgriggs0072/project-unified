@@ -14,13 +14,14 @@ except Exception:
 
 from config import get_display_label, get_icon  # noqa: E402
 from handlers import stream_chat, stream_code  # noqa: E402
-from image_handler import generate_image  # noqa: E402
+from image_handler import generate_followup_image, generate_image  # noqa: E402
 from router import classify  # noqa: E402
 from utils import (  # noqa: E402
     detect_document_type,
     detect_language,
     extract_code_block,
     extract_markdown_table_to_csv,
+    generate_filename,
     pre_code_text,
     text_to_docx,
 )
@@ -37,7 +38,10 @@ st.set_page_config(
 defaults = {
     "messages": [],
     "has_first_message": False,
-    "current_route_category": None,   # stores category string, not display label
+    "current_route_category": None,
+    "last_image_prompt": None,   # enhanced prompt of last generated image
+    "last_image_bytes": None,    # bytes of last generated image
+    "image_turn_count": 0,       # consecutive image turns; resets on non-image route
 }
 for k, v in defaults.items():
     if k not in st.session_state:
@@ -130,9 +134,16 @@ for _i, msg in enumerate(st.session_state.messages):
             _msg_lbl  = get_display_label(_msg_cat)
             st.caption(f"{_msg_icon} {_msg_lbl}")
 
-            if _msg_cat == "image" and msg.get("image_bytes"):
+            if _msg_cat in ("image", "image_followup") and msg.get("image_bytes"):
                 st.image(Image.open(BytesIO(msg["image_bytes"])), width=512)
                 st.caption(f"✨ Enhanced prompt: {msg.get('enhanced_prompt', '')}")
+                st.download_button(
+                    label="⬇️ Download Image",
+                    data=msg["image_bytes"],
+                    file_name=generate_filename(msg.get("enhanced_prompt", "image")),
+                    mime="image/png",
+                    key=f"img_dl_{_i}",
+                )
             elif _msg_cat == "code":
                 _code, _lang = extract_code_block(msg["content"])
                 if _code:
@@ -211,8 +222,13 @@ if user_input:
         if override != "🔀 Auto-route":
             category = OVERRIDE_TO_CATEGORY.get(override, "chat")
         else:
-            result = classify(user_input)
+            has_image_context = bool(st.session_state.get("last_image_prompt"))
+            result = classify(user_input, has_image_context=has_image_context)
             category = result.get("category", "chat")
+
+        # Reset image turn counter whenever we leave the image flow
+        if category not in ("image", "image_followup"):
+            st.session_state["image_turn_count"] = 0
 
         # Update session state and pill with Xovia branding
         st.session_state.current_route_category = category
@@ -241,6 +257,31 @@ if user_input:
                         st.markdown(prose)
                     st.code(code_block, language=detect_language(lang_hint))
 
+        elif category == "image_followup":
+            _last = st.session_state.get("last_image_prompt", "")
+            st.caption("🔄 Modifying previous image…")
+            with st.spinner("Updating image with your changes…"):
+                image_bytes, enhanced_prompt, img_error = generate_followup_image(user_input, _last)
+            if img_error == "content_policy":
+                st.error("That image request was declined by our content filter — try a different description")
+                full_response = "[Image generation declined by content filter]"
+            elif img_error:
+                st.error("Image generation failed — please try again")
+                full_response = "[Image generation failed]"
+            else:
+                st.image(Image.open(BytesIO(image_bytes)), width=512)
+                st.caption(f"✨ Enhanced prompt: {enhanced_prompt}")
+                st.download_button(
+                    label="⬇️ Download Image",
+                    data=image_bytes,
+                    file_name=generate_filename(enhanced_prompt),
+                    mime="image/png",
+                )
+                full_response = f"[Image updated] {enhanced_prompt}"
+                st.session_state["last_image_prompt"] = enhanced_prompt
+                st.session_state["last_image_bytes"] = image_bytes
+                st.session_state["image_turn_count"] = st.session_state.get("image_turn_count", 0) + 1
+
         elif category == "image":
             with st.spinner("Enhancing prompt and generating image…"):
                 image_bytes, enhanced_prompt, img_error = generate_image(user_input)
@@ -253,7 +294,16 @@ if user_input:
             else:
                 st.image(Image.open(BytesIO(image_bytes)), width=512)
                 st.caption(f"✨ Enhanced prompt: {enhanced_prompt}")
+                st.download_button(
+                    label="⬇️ Download Image",
+                    data=image_bytes,
+                    file_name=generate_filename(enhanced_prompt),
+                    mime="image/png",
+                )
                 full_response = f"[Image generated] {enhanced_prompt}"
+                st.session_state["last_image_prompt"] = enhanced_prompt
+                st.session_state["last_image_bytes"] = image_bytes
+                st.session_state["image_turn_count"] = 1
 
         elif category in ("video", "audio", "agentic"):
             _stub_labels = {
