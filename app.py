@@ -12,9 +12,10 @@ except Exception:
     from dotenv import load_dotenv
     load_dotenv()
 
+from config import get_display_label, get_icon  # noqa: E402
 from handlers import stream_chat, stream_code  # noqa: E402
 from image_handler import generate_image  # noqa: E402
-from router import CATEGORY_LABELS, classify, route_label  # noqa: E402
+from router import classify  # noqa: E402
 from utils import (  # noqa: E402
     detect_document_type,
     detect_language,
@@ -36,37 +37,51 @@ st.set_page_config(
 defaults = {
     "messages": [],
     "has_first_message": False,
-    "current_route_label": None,
+    "current_route_category": None,   # stores category string, not display label
 }
 for k, v in defaults.items():
     if k not in st.session_state:
         st.session_state[k] = v
 
 # ---------------------------------------------------------------------------
+# Sidebar — about
+# ---------------------------------------------------------------------------
+with st.sidebar:
+    st.markdown("---")
+    st.caption("Powered by leading AI models")
+    with st.expander("ℹ️ How it works"):
+        st.markdown(
+            "Xovia routes your requests to the best available AI models to get you "
+            "the best result. We use industry-leading language and image models under "
+            "the hood so you don't have to think about it.\n\n"
+            "Just type — Xovia handles the rest."
+        )
+
+# ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 OVERRIDE_OPTIONS = [
     "🔀 Auto-route",
-    "Claude Chat",
-    "Claude Code",
-    "Image Gen",
-    "Cowork",
-    "Data Analysis",
+    "Xovia AI",
+    "Xovia AI — Code",
+    "Xovia AI — Image",
+    "Xovia AI — Cowork",
+    "Xovia AI — Analysis",
 ]
 
 OVERRIDE_TO_CATEGORY: dict[str, str] = {
-    "Claude Chat": "chat",
-    "Claude Code": "code",
-    "Image Gen": "image",
-    "Cowork": "agentic",
-    "Data Analysis": "data",
+    "Xovia AI":             "chat",
+    "Xovia AI — Code":      "code",
+    "Xovia AI — Image":     "image",
+    "Xovia AI — Cowork":    "agentic",
+    "Xovia AI — Analysis":  "data",
 }
 
 CHIPS: list[tuple[str, str]] = [
     ("✍️ Write me a cover letter", "Write me a cover letter for "),
-    ("🐍 Debug my Python code", "Debug my Python code: "),
-    ("🖼️ Make an image of...", "Make an image of "),
-    ("📊 Summarize this CSV", "Summarize this data: "),
+    ("🐍 Debug my Python code",    "Debug my Python code: "),
+    ("🖼️ Make an image of...",     "Make an image of "),
+    ("📊 Summarize this CSV",      "Summarize this data: "),
 ]
 
 # ---------------------------------------------------------------------------
@@ -87,8 +102,11 @@ with col_override:
 
 with col_pill:
     pill = st.empty()
-    if st.session_state.current_route_label:
-        pill.markdown(f"**⚡ {st.session_state.current_route_label}**")
+    _cat = st.session_state.current_route_category
+    if _cat:
+        _icon = get_icon(_cat)
+        _lbl  = get_display_label(_cat)
+        pill.markdown(f"**{_icon} {_lbl}**")
     else:
         pill.markdown("*🔀 No route yet*")
 
@@ -107,11 +125,15 @@ if not st.session_state.has_first_message:
 for _i, msg in enumerate(st.session_state.messages):
     with st.chat_message(msg["role"]):
         if msg["role"] == "assistant":
-            st.caption(f"Routed to {msg.get('route', 'unknown')}")
-            if msg.get("category") == "image" and msg.get("image_bytes"):
+            _msg_cat  = msg.get("category", "chat")
+            _msg_icon = get_icon(_msg_cat)
+            _msg_lbl  = get_display_label(_msg_cat)
+            st.caption(f"{_msg_icon} {_msg_lbl}")
+
+            if _msg_cat == "image" and msg.get("image_bytes"):
                 st.image(Image.open(BytesIO(msg["image_bytes"])), width=512)
                 st.caption(f"✨ Enhanced prompt: {msg.get('enhanced_prompt', '')}")
-            elif msg.get("category") == "code":
+            elif _msg_cat == "code":
                 _code, _lang = extract_code_block(msg["content"])
                 if _code:
                     _prose = pre_code_text(msg["content"])
@@ -120,7 +142,7 @@ for _i, msg in enumerate(st.session_state.messages):
                     st.code(_code, language=detect_language(_lang))
                 else:
                     st.markdown(msg["content"])
-            elif msg.get("category") == "data":
+            elif _msg_cat == "data":
                 st.markdown(msg["content"])
                 _csv = extract_markdown_table_to_csv(msg["content"]) or msg["content"]
                 st.download_button(
@@ -144,11 +166,8 @@ for _i, msg in enumerate(st.session_state.messages):
             st.write(msg["content"])
 
 # ---------------------------------------------------------------------------
-# Hint chips
-# Chips MUST appear above the text_input in the script. When a chip is
-# clicked, session_state["user_input"] is set and st.rerun() is called.
-# The rerun restarts the script from the top; when it reaches the
-# text_input, it reads the pre-set session_state value — single click.
+# Hint chips — must appear above the form so session_state is set
+# before the text_input is instantiated on the triggered rerun.
 # ---------------------------------------------------------------------------
 chip_cols = st.columns(len(CHIPS))
 for col, (label, prompt) in zip(chip_cols, CHIPS):
@@ -158,9 +177,7 @@ for col, (label, prompt) in zip(chip_cols, CHIPS):
             st.rerun()
 
 # ---------------------------------------------------------------------------
-# Input box + Send button
-# st.form makes Enter and the Send button equivalent.
-# clear_on_submit=True resets the field automatically after submission.
+# Input box + Send button (Enter or button both submit via st.form)
 # ---------------------------------------------------------------------------
 with st.form("chat_form", clear_on_submit=True):
     input_col, send_col = st.columns([9, 1])
@@ -197,10 +214,12 @@ if user_input:
             result = classify(user_input)
             category = result.get("category", "chat")
 
-        route_name = route_label(category)
-        st.session_state.current_route_label = route_name
-        pill.markdown(f"**⚡ {route_name}**")
-        st.caption(f"Routed to {route_name}")
+        # Update session state and pill with Xovia branding
+        st.session_state.current_route_category = category
+        _icon = get_icon(category)
+        _lbl  = get_display_label(category)
+        pill.markdown(f"**{_icon} {_lbl}**")
+        st.caption(f"{_icon} {_lbl}")
 
         image_bytes: bytes | None = None
         enhanced_prompt: str = ""
@@ -238,12 +257,12 @@ if user_input:
 
         elif category in ("video", "audio", "agentic"):
             _stub_labels = {
-                "video": "Video generation",
-                "audio": "Audio generation",
-                "agentic": "Cowork (agentic tasks)",
+                "video":   "Xovia AI — Video",
+                "audio":   "Xovia AI — Audio",
+                "agentic": "Xovia AI — Cowork",
             }
-            _label = _stub_labels.get(category, category.title())
-            st.info(f"**{_label}** is coming soon. Routing to Claude Chat for now.")
+            _stub = _stub_labels.get(category, "This capability")
+            st.info(f"**{_stub}** is coming soon. Routing to Xovia AI for now.")
             full_response = st.write_stream(stream_chat(user_input, prev_history))
 
         else:
@@ -268,15 +287,13 @@ if user_input:
 
     st.session_state.messages.append({"role": "user", "content": user_input})
     _assistant_msg: dict = {
-        "role": "assistant",
-        "content": full_response,
-        "route": route_name,
-        "category": category,
+        "role":        "assistant",
+        "content":     full_response,
+        "category":    category,
         "is_document": is_document,
         "doc_filename": doc_filename,
     }
     if category == "image" and image_bytes:
-        _assistant_msg["image_bytes"] = image_bytes
+        _assistant_msg["image_bytes"]     = image_bytes
         _assistant_msg["enhanced_prompt"] = enhanced_prompt
     st.session_state.messages.append(_assistant_msg)
-

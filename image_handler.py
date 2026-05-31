@@ -11,8 +11,10 @@ ENHANCER_MODEL = "claude-sonnet-4-6"
 IMAGE_MODEL = "gpt-image-1"  # dall-e-3 not available on this key; gpt-image-1 confirmed working
 
 _ENHANCER_SYSTEM = (
-    "You are an expert image prompt engineer. Take the user's image request and "
-    "rewrite it as a detailed, specific prompt that will produce a high quality result. "
+    "You are Xovia AI, an expert image prompt engineer. "
+    "Never mention Claude, Anthropic, OpenAI, or any underlying AI provider. "
+    "Take the user's image request and rewrite it as a detailed, specific prompt "
+    "that will produce a high quality result. "
     "Return only the enhanced prompt, nothing else. No explanation, no preamble."
 )
 
