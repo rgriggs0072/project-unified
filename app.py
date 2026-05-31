@@ -1,6 +1,8 @@
 import os
+from io import BytesIO
 
 import streamlit as st
+from PIL import Image
 
 # Inject Streamlit secrets into env before any API client is created
 try:
@@ -11,6 +13,7 @@ except Exception:
     load_dotenv()
 
 from handlers import stream_chat, stream_code  # noqa: E402
+from image_handler import generate_image  # noqa: E402
 from router import CATEGORY_LABELS, classify, route_label  # noqa: E402
 from utils import detect_language, extract_code_block, pre_code_text  # noqa: E402
 
@@ -101,12 +104,18 @@ for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         if msg["role"] == "assistant":
             st.caption(f"Routed to {msg.get('route', 'unknown')}")
-            _code, _lang = extract_code_block(msg["content"])
-            if _code and msg.get("category") == "code":
-                _prose = pre_code_text(msg["content"])
-                if _prose:
-                    st.markdown(_prose)
-                st.code(_code, language=detect_language(_lang))
+            if msg.get("category") == "image" and msg.get("image_bytes"):
+                st.image(Image.open(BytesIO(msg["image_bytes"])), width=512)
+                st.caption(f"✨ Enhanced prompt: {msg.get('enhanced_prompt', '')}")
+            elif msg.get("category") == "code":
+                _code, _lang = extract_code_block(msg["content"])
+                if _code:
+                    _prose = pre_code_text(msg["content"])
+                    if _prose:
+                        st.markdown(_prose)
+                    st.code(_code, language=detect_language(_lang))
+                else:
+                    st.markdown(msg["content"])
             else:
                 st.markdown(msg["content"])
         else:
@@ -125,7 +134,7 @@ CHIPS: list[tuple[str, str]] = [
 chip_cols = st.columns(len(CHIPS))
 for col, (label, prompt) in zip(chip_cols, CHIPS):
     with col:
-        if st.button(label, use_container_width=True):
+        if st.button(label, width=512):
             st.session_state.pending_input = prompt
             st.rerun()
 
@@ -165,6 +174,9 @@ if user_input:
         # ---------------------------------------------------------------
         # Stream + render response
         # ---------------------------------------------------------------
+        image_bytes: bytes | None = None
+        enhanced_prompt: str = ""
+
         if category == "code":
             stream_slot = st.empty()
 
@@ -185,17 +197,33 @@ if user_input:
                     st.code(code_block, language=detect_language(lang_hint))
             # If no code block found, the streamed markdown stays as-is
 
-        elif category in ("image", "video", "audio", "agentic"):
-            # Phase-2 stubs — give the user a clear "coming soon" message
+        elif category == "image":
+            image_bytes: bytes | None = None
+            enhanced_prompt: str = ""
+            with st.spinner("Enhancing prompt and generating image…"):
+                image_bytes, enhanced_prompt, img_error = generate_image(user_input)
+            if img_error == "content_policy":
+                st.error("That image request was declined by our content filter — try a different description")
+                full_response = "[Image generation declined by content filter]"
+            elif img_error:
+                st.error("Image generation failed — please try again")
+                full_response = "[Image generation failed]"
+            else:
+                st.image(Image.open(BytesIO(image_bytes)), width=512)
+                st.caption(f"✨ Enhanced prompt: {enhanced_prompt}")
+                full_response = f"[Image generated] {enhanced_prompt}"
+
+        elif category in ("video", "audio", "agentic"):
             _stub_labels = {
-                "image": "Image generation",
                 "video": "Video generation",
                 "audio": "Audio generation",
                 "agentic": "Cowork (agentic tasks)",
             }
             _label = _stub_labels.get(category, category.title())
-            st.info(f"**{_label}** is coming in Phase 2. Routing to Claude Chat for now.")
+            st.info(f"**{_label}** is coming soon. Routing to Claude Chat for now.")
             full_response = st.write_stream(stream_chat(user_input, prev_history))
+            image_bytes = None
+            enhanced_prompt = ""
 
         else:
             # chat / data / fallback
@@ -203,11 +231,13 @@ if user_input:
 
     # Persist both turns to session state
     st.session_state.messages.append({"role": "user", "content": user_input})
-    st.session_state.messages.append(
-        {
-            "role": "assistant",
-            "content": full_response,
-            "route": route_name,
-            "category": category,
-        }
-    )
+    _assistant_msg: dict = {
+        "role": "assistant",
+        "content": full_response,
+        "route": route_name,
+        "category": category,
+    }
+    if category == "image" and image_bytes:
+        _assistant_msg["image_bytes"] = image_bytes
+        _assistant_msg["enhanced_prompt"] = enhanced_prompt
+    st.session_state.messages.append(_assistant_msg)
