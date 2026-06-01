@@ -25,6 +25,7 @@ except Exception:
 # the configured page rather than on a blank error screen.
 from xovia_config import get_display_label, get_icon  # noqa: E402
 from handlers import stream_chat, stream_code  # noqa: E402
+from excel_handler import generate_excel  # noqa: E402
 from image_handler import generate_followup_image, generate_image  # noqa: E402
 from router import classify  # noqa: E402
 from utils import (  # noqa: E402
@@ -79,6 +80,8 @@ OVERRIDE_OPTIONS = [
     "Xovia AI — Cowork",
     "Xovia AI — Analysis",
 ]
+
+_EXCEL_KEYWORDS = frozenset({"excel", "spreadsheet", "xlsx", "workbook", "worksheet"})
 
 OVERRIDE_TO_CATEGORY: dict[str, str] = {
     "Xovia AI":             "chat",
@@ -144,6 +147,15 @@ for _i, msg in enumerate(st.session_state.messages):
                     file_name=generate_filename(msg.get("enhanced_prompt", "image")),
                     mime="image/png",
                     key=f"img_dl_{_i}",
+                )
+            elif msg.get("excel_bytes"):
+                st.markdown(msg["content"])
+                st.download_button(
+                    label="📊 Download as .xlsx",
+                    data=msg["excel_bytes"],
+                    file_name=msg.get("excel_filename", "spreadsheet.xlsx"),
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key=f"xl_dl_{_i}",
                 )
             elif _msg_cat == "code":
                 _code, _lang = extract_code_block(msg["content"])
@@ -213,8 +225,26 @@ if user_input:
         enhanced_prompt: str = ""
         is_document: bool = False
         doc_filename: str = ""
+        excel_bytes: bytes | None = None
+        excel_filename: str = ""
 
-        if category == "code":
+        _is_excel = any(kw in user_input.lower() for kw in _EXCEL_KEYWORDS)
+
+        if _is_excel and category in ("code", "chat", "data"):
+            with st.spinner("Building your Excel file…"):
+                excel_bytes, excel_filename, full_response, xl_error = generate_excel(user_input)
+            if xl_error:
+                st.error(f"Excel generation failed — {xl_error}")
+            else:
+                st.markdown(full_response)
+                st.download_button(
+                    label="📊 Download as .xlsx",
+                    data=excel_bytes,
+                    file_name=excel_filename,
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+
+        elif category == "code":
             stream_slot = st.empty()
             with stream_slot.container():
                 full_response: str = st.write_stream(
@@ -318,4 +348,7 @@ if user_input:
     if category == "image" and image_bytes:
         _assistant_msg["image_bytes"]     = image_bytes
         _assistant_msg["enhanced_prompt"] = enhanced_prompt
+    if excel_bytes:
+        _assistant_msg["excel_bytes"]    = excel_bytes
+        _assistant_msg["excel_filename"] = excel_filename
     st.session_state.messages.append(_assistant_msg)
