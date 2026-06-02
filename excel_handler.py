@@ -60,9 +60,19 @@ Rules:
 - Write the How to Use sheet as if explaining to someone who has never used a spreadsheet
 - Include a row for every other sheet explaining what it does and exactly how to use it
 - After How to Use, create all logical data sheets (Dashboard, data entry sheets, Settings, etc.)
-- Include realistic sample data in every data sheet
+- Include realistic sample data in every data entry sheet
+
+CRITICAL — FORMULAS:
+- Dashboard and summary sheets MUST use Excel cross-sheet formulas, NOT hardcoded numbers.
+  Example: to sum the Amount column from an Expenses sheet use "=SUM(Expenses!C:C)"
+  Example: to count rows in a Sales Log sheet use "=COUNTA(Sales Log!A:A)-1"
+  Example: net savings formula: "=SUM(Income!C:C)-SUM(Expenses!C:C)"
+- Any cell that summarises or totals data from another sheet MUST be a formula string starting with =
+- Data entry sheets (Income, Expenses, Sales Log, etc.) should have real sample rows with numeric values
+- The Dashboard reads FROM those sheets via formulas — never duplicate numbers between sheets
+- Percentages on the Dashboard should also be formulas e.g. "=B3/B2" not "64%"
+
 - col_widths values are in Excel character units (typical: 15-25; use 90 for the instructions column)
-- Use numeric values (not strings) for monetary/numeric fields so Excel can compute on them
 - vba_code should be complete, working VBA — omit if not needed\
 """
 
@@ -84,26 +94,19 @@ def _get_structure(prompt: str) -> dict:
     )
     text = response.content[0].text.strip()
 
-    # Try direct parse first
+    # Try direct parse first (model returned clean JSON)
     try:
         return json.loads(text)
     except json.JSONDecodeError:
         pass
 
-    # Strip markdown code fences and retry
-    clean = re.sub(r"^```[a-z]*\n?", "", text, flags=re.MULTILINE)
-    clean = re.sub(r"```$", "", clean, flags=re.MULTILINE).strip()
-    try:
-        return json.loads(clean)
-    except json.JSONDecodeError:
-        pass
+    # Slice from the first { to the last } — handles any fence/preamble wrapping
+    start = text.find("{")
+    end   = text.rfind("}") + 1
+    if start >= 0 and end > start:
+        return json.loads(text[start:end])
 
-    # Extract the first {...} block
-    m = re.search(r"\{.*\}", text, re.DOTALL)
-    if m:
-        return json.loads(m.group())
-
-    raise ValueError(f"Could not parse JSON from model response: {text[:300]}")
+    raise ValueError(f"No JSON object found in model response: {text[:300]}")
 
 
 def _build_instructions_sheet(ws, sheet_def: dict) -> None:
