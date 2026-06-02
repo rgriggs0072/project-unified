@@ -72,6 +72,12 @@ CRITICAL — FORMULAS:
 - The Dashboard reads FROM those sheets via formulas — never duplicate numbers between sheets
 - Percentages on the Dashboard should also be formulas e.g. "=B3/B2" not "64%"
 
+CRITICAL — AVOID CIRCULAR REFERENCES:
+- NEVER use a whole-column reference like =SUM(D:D) in a cell that is itself in column D of the same sheet — this creates a circular reference error in Excel
+- On data sheets, if a total row is needed, use a bounded range that excludes the total cell itself e.g. =SUM(D2:D500) placed in row 502 or later
+- Cross-sheet references on the Dashboard are always safe e.g. =SUM(Hours!D:D) from the Dashboard sheet does NOT cause a circular reference
+- Prefer putting ALL summary formulas on the Dashboard sheet only; keep data sheets as pure data entry with no in-sheet totals
+
 - col_widths values are in Excel character units (typical: 15-25; use 90 for the instructions column)
 - vba_code should be complete, working VBA — omit if not needed\
 """
