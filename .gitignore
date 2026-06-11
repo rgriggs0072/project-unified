@@ -18,3 +18,10 @@ Thumbs.db
 
 # Test artifacts
 test_output_*.png
+test_excel_*.xlsx
+test_formulas.xlsx
+test_howto.xlsx
+test_time_tracker.xlsx
+
+# Usage counter — resets daily, never commit
+usage/daily_usage.json

@@ -14,9 +14,11 @@ st.set_page_config(
 )
 
 # Inject secrets into env so lazy API clients can find the keys.
+_admin_bypass = False
 try:
     os.environ.setdefault("ANTHROPIC_API_KEY", st.secrets["anthropic"]["api_key"])
     os.environ.setdefault("OPENAI_API_KEY", st.secrets["openai"]["api_key"])
+    _admin_bypass = st.secrets.get("ADMIN_BYPASS", "false") == "true"
 except Exception:
     from dotenv import load_dotenv
     load_dotenv()
@@ -28,6 +30,12 @@ from handlers import stream_chat, stream_code  # noqa: E402
 from excel_handler import generate_excel  # noqa: E402
 from image_handler import generate_followup_image, generate_image  # noqa: E402
 from router import classify  # noqa: E402
+from usage.daily_cap import (  # noqa: E402
+    get_remaining,
+    get_usage_percentage,
+    increment_usage,
+    is_limit_reached,
+)
 from utils import (  # noqa: E402
     detect_document_type,
     detect_language,
@@ -68,6 +76,12 @@ with st.sidebar:
             "the hood so you don't have to think about it.\n\n"
             "Just type — Xovia handles the rest."
         )
+    _pct = get_usage_percentage()
+    _remaining = get_remaining()
+    if _pct >= 80:
+        st.warning(f"High demand today — {_remaining} requests remaining")
+    elif _pct >= 50:
+        st.info(f"📊 {_remaining} requests available today")
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -124,7 +138,7 @@ st.divider()
 # Empty state hero — disappears after first message
 # ---------------------------------------------------------------------------
 if not st.session_state.has_first_message:
-    st.markdown("# Ask anything. We'll find the right AI.")
+    st.markdown("# Ask anything. XOVIA will do all the work.")
     st.markdown("Chat, code, images, analysis — all in one place.")
 
 # ---------------------------------------------------------------------------
@@ -194,6 +208,13 @@ for _i, msg in enumerate(st.session_state.messages):
 # Process submission
 # ---------------------------------------------------------------------------
 if user_input:
+    if is_limit_reached() and not _admin_bypass:
+        st.error(
+            "Xovia is experiencing high demand today. Daily capacity has been reached. "
+            "Please try again tomorrow or contact hello@xovia.ai for priority access."
+        )
+        st.stop()
+
     st.session_state.has_first_message = True
     prev_history = list(st.session_state.messages)
 
@@ -336,6 +357,8 @@ if user_input:
                         file_name=doc_filename,
                         mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                     )
+
+    increment_usage()
 
     st.session_state.messages.append({"role": "user", "content": user_input})
     _assistant_msg: dict = {
